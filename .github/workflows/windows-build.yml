@@ -43,7 +43,7 @@ jobs:
         copy *.csv dist\ 2>nul || echo "No CSV files to copy"
 
     - name: Upload build artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: rnb-snow-windows
         path: dist/
