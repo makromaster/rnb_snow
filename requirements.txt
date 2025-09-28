@@ -1,0 +1,4 @@
+selenium>=4.0.0
+# tkinter is included with Python standard library
+# sqlite3 is included with Python standard library
+# csv is included with Python standard library
