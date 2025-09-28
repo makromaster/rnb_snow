@@ -34,19 +34,38 @@ jobs:
         python -c "import create_database; print('Database module imports successfully')"
         python -c "import gui_main; print('GUI module imports successfully')"
 
-    - name: Package application files
+    - name: Build standalone executables
       run: |
-        mkdir dist
-        copy *.py dist\
-        copy requirements.txt dist\
-        copy README.md dist\
-        copy *.csv dist\ 2>nul || echo "No CSV files to copy"
+        # Build GUI application as standalone executable
+        pyinstaller --onefile --windowed --name "RnB-Snow-GUI" gui_main.py
+
+        # Build console version for automation
+        pyinstaller --onefile --name "RnB-Snow-Console" create_database.py
+
+        # Build Selenium session tool
+        pyinstaller --onefile --name "RnB-Snow-Selenium" selenium_debug_session.py
+
+        # Create distribution directory
+        mkdir dist-final
+        copy dist\*.exe dist-final\
+        copy README.md dist-final\
+        copy *.csv dist-final\ 2>nul || echo "No CSV files to copy"
+
+        # Create usage instructions
+        echo "RnB Snow Ticket Matching System - Standalone Executables" > dist-final\USAGE.txt
+        echo. >> dist-final\USAGE.txt
+        echo "Files included:" >> dist-final\USAGE.txt
+        echo "- RnB-Snow-GUI.exe: Main graphical interface" >> dist-final\USAGE.txt
+        echo "- RnB-Snow-Console.exe: Command-line database operations" >> dist-final\USAGE.txt
+        echo "- RnB-Snow-Selenium.exe: Web automation for email extraction" >> dist-final\USAGE.txt
+        echo. >> dist-final\USAGE.txt
+        echo "No Python installation required!" >> dist-final\USAGE.txt
 
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: rnb-snow-windows
-        path: dist/
+        name: rnb-snow-windows-executables
+        path: dist-final/
 
     - name: Push to private repository
       if: github.ref == 'refs/heads/main' && github.event_name == 'push'
@@ -60,7 +79,7 @@ jobs:
         git clone https://${{ secrets.PRIVATE_REPO_TOKEN }}@github.com/makromaster/rnb-snow-builds.git private-repo
 
         # Copy files to private repo
-        xcopy dist private-repo\ /E /Y
+        xcopy dist-final private-repo\ /E /Y
 
         # Commit and push to private repo
         cd private-repo

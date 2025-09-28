@@ -1,5 +1,6 @@
 selenium>=4.0.0
 pandas>=1.3.0
+pyinstaller>=5.0.0
 # tkinter is included with Python standard library
 # sqlite3 is included with Python standard library
 # csv is included with Python standard library
