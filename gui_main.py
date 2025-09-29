@@ -3,6 +3,7 @@ from tkinter import ttk, filedialog, messagebox
 import threading
 import subprocess
 import os
+import sys
 import sqlite3
 import csv
 from create_database import update_database, get_database_stats
@@ -245,11 +246,25 @@ class TicketMatchingGUI:
 
             self.log_message(f"Launching Selenium session for {stats['pending_extraction_count']} pending tickets...")
 
-            # Launch selenium script
-            process = subprocess.Popen(
-                ['python', 'selenium_debug_session.py'],
-                cwd=os.path.dirname(os.path.abspath(__file__))
-            )
+            # Determine the selenium executable path
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+
+            # Check if we're running as executable or from source
+            if getattr(sys, 'frozen', False):
+                # Running as PyInstaller executable
+                selenium_exe = os.path.join(current_dir, 'RnB-Snow-Selenium.exe')
+                if os.path.exists(selenium_exe):
+                    cmd = [selenium_exe]
+                else:
+                    # Fallback: try to import and run directly
+                    self._run_selenium_direct()
+                    return
+            else:
+                # Running from source - use Python
+                cmd = ['python', 'selenium_debug_session.py']
+
+            # Launch selenium process
+            process = subprocess.Popen(cmd, cwd=current_dir)
 
             self.log_message("Selenium session launched in separate process")
             messagebox.showinfo("Selenium Launched",
@@ -258,6 +273,23 @@ class TicketMatchingGUI:
 
         except Exception as e:
             error_msg = f"Error launching Selenium: {str(e)}"
+            self.log_message(error_msg)
+            messagebox.showerror("Error", error_msg)
+
+    def _run_selenium_direct(self):
+        """Run selenium session directly in current process as fallback"""
+        try:
+            import selenium_debug_session
+            self.log_message("Running Selenium session directly...")
+
+            # Run in background thread to avoid blocking GUI
+            thread = threading.Thread(target=selenium_debug_session.main)
+            thread.daemon = True
+            thread.start()
+
+            messagebox.showinfo("Selenium Started", "Selenium session started in background thread.")
+        except Exception as e:
+            error_msg = f"Error running Selenium directly: {str(e)}"
             self.log_message(error_msg)
             messagebox.showerror("Error", error_msg)
 

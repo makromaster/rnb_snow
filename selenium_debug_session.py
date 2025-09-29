@@ -279,7 +279,7 @@ def manual_debug_session():
     print("Waiting for login to complete...")
     print("Please complete the Microsoft login process in the browser")
     print("Script will continue when you're back on ServiceNow (emeops03.service-now.com)")
-    time.sleep(15)
+    time.sleep(30)
     # Wait until we're back on ServiceNow domain (not just a parameter in Microsoft login)
     while True:
         current_url = driver.current_url
