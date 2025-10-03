@@ -247,24 +247,43 @@ class TicketMatchingGUI:
             self.log_message(f"Launching Selenium session for {stats['pending_extraction_count']} pending tickets...")
 
             # Determine the selenium executable path
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-
-            # Check if we're running as executable or from source
             if getattr(sys, 'frozen', False):
-                # Running as PyInstaller executable
+                # Running as PyInstaller executable - check multiple locations
+                current_dir = os.path.dirname(os.path.abspath(sys.executable))
                 selenium_exe = os.path.join(current_dir, 'RnB-Snow-Selenium.exe')
+
+                # Also try the script directory
+                if not os.path.exists(selenium_exe):
+                    script_dir = os.path.dirname(os.path.abspath(__file__))
+                    selenium_exe = os.path.join(script_dir, 'RnB-Snow-Selenium.exe')
+
+                # Also try current working directory
+                if not os.path.exists(selenium_exe):
+                    selenium_exe = os.path.join(os.getcwd(), 'RnB-Snow-Selenium.exe')
+
                 if os.path.exists(selenium_exe):
                     cmd = [selenium_exe]
+                    self.log_message(f"Found Selenium executable at: {selenium_exe}")
                 else:
                     # Fallback: try to import and run directly
+                    self.log_message("Selenium executable not found, running directly...")
                     self._run_selenium_direct()
                     return
             else:
                 # Running from source - use Python
+                current_dir = os.path.dirname(os.path.abspath(__file__))
                 cmd = ['python', 'selenium_debug_session.py']
 
             # Launch selenium process
-            process = subprocess.Popen(cmd, cwd=current_dir)
+            if getattr(sys, 'frozen', False):
+                # When running executable, use the directory where the executable is located
+                work_dir = os.path.dirname(cmd[0]) if os.path.isabs(cmd[0]) else os.getcwd()
+            else:
+                # When running from source, use the script directory
+                work_dir = current_dir
+
+            process = subprocess.Popen(cmd, cwd=work_dir,
+                                     creationflags=subprocess.CREATE_NEW_CONSOLE if os.name == 'nt' else 0)
 
             self.log_message("Selenium session launched in separate process")
             messagebox.showinfo("Selenium Launched",

@@ -1,3 +1,8 @@
+import os
+# Suppress TensorFlow warnings and logs before any other imports
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Suppress TensorFlow logging
+os.environ['PYTHONWARNINGS'] = 'ignore::DeprecationWarning'  # Suppress deprecation warnings
+
 import sqlite3
 import time
 import pdb
