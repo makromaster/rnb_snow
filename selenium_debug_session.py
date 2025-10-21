@@ -16,6 +16,7 @@ import re
 import tempfile
 import shutil
 import urllib.request
+import ssl
 import email
 from email import policy
 
@@ -368,8 +369,12 @@ def find_and_download_pdf_attachments(driver):
 
                 pdf_filename = os.path.join(temp_dir, f"attachment_{i}.pdf")
 
-                # Download PDF using urllib with cookies
-                opener = urllib.request.build_opener()
+                # Download PDF using urllib with cookies (disable SSL verification for internal sites)
+                ssl_context = ssl.create_default_context()
+                ssl_context.check_hostname = False
+                ssl_context.verify_mode = ssl.CERT_NONE
+
+                opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=ssl_context))
                 opener.addheaders = [
                     ('Cookie', '; '.join([f"{k}={v}" for k, v in cookie_dict.items()])),
                     ('User-Agent', 'Mozilla/5.0')
@@ -503,8 +508,12 @@ def find_and_download_eml_files(driver):
 
                 eml_filename = os.path.join(temp_dir, f"email_{i}.eml")
 
-                # Download .eml file using urllib with cookies
-                opener = urllib.request.build_opener()
+                # Download .eml file using urllib with cookies (disable SSL verification for internal sites)
+                ssl_context = ssl.create_default_context()
+                ssl_context.check_hostname = False
+                ssl_context.verify_mode = ssl.CERT_NONE
+
+                opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=ssl_context))
                 opener.addheaders = [
                     ('Cookie', '; '.join([f"{k}={v}" for k, v in cookie_dict.items()])),
                     ('User-Agent', 'Mozilla/5.0')
