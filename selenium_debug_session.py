@@ -13,6 +13,19 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 import re
+import tempfile
+import shutil
+import urllib.request
+
+# OCR imports
+try:
+    import pytesseract
+    from pdf2image import convert_from_path
+    from PIL import Image
+    OCR_AVAILABLE = True
+except ImportError:
+    OCR_AVAILABLE = False
+    print("WARNING: OCR libraries not available. PDF text extraction will be limited.")
 
 def setup_driver():
     """Setup Chrome driver with options to prevent logout"""
@@ -265,6 +278,120 @@ def find_account_in_text(text):
     conn.close()
     return matches
 
+def extract_text_from_pdf_ocr(pdf_path):
+    """
+    Extract text from PDF using OCR (for scanned PDFs or images)
+    Returns extracted text or empty string if OCR fails
+    """
+    if not OCR_AVAILABLE:
+        print("OCR libraries not available - cannot extract text from PDF")
+        return ""
+
+    try:
+        print(f"Running OCR on PDF: {pdf_path}")
+
+        # Convert PDF to images
+        images = convert_from_path(pdf_path, dpi=300)
+        print(f"Converted PDF to {len(images)} image(s)")
+
+        # Extract text from each page
+        extracted_text = []
+        for i, image in enumerate(images):
+            print(f"Processing page {i+1}/{len(images)} with OCR...")
+            text = pytesseract.image_to_string(image)
+            if text.strip():
+                extracted_text.append(text)
+
+        full_text = '\n\n'.join(extracted_text)
+        print(f"OCR extracted {len(full_text)} characters from PDF")
+        return full_text
+
+    except Exception as e:
+        print(f"Error during OCR extraction: {e}")
+        return ""
+
+def find_and_download_pdf_attachments(driver):
+    """
+    Find PDF attachments on the current ServiceNow email page and download them
+    Returns list of downloaded PDF file paths
+    """
+    downloaded_pdfs = []
+
+    try:
+        # Look for attachment links - ServiceNow typically has attachments in a specific section
+        # Try multiple patterns to find PDFs
+        attachment_links = []
+
+        # Pattern 1: Direct PDF links
+        attachment_links.extend(driver.find_elements(By.XPATH, "//a[contains(@href, '.pdf')]"))
+
+        # Pattern 2: Attachment table links
+        attachment_links.extend(driver.find_elements(By.XPATH, "//a[contains(text(), '.pdf')]"))
+
+        # Pattern 3: ServiceNow attachment links (common pattern)
+        attachment_links.extend(driver.find_elements(By.XPATH, "//a[contains(@class, 'attachment')]"))
+
+        if not attachment_links:
+            print("No PDF attachments found on page")
+            return downloaded_pdfs
+
+        # Remove duplicates
+        unique_links = []
+        seen_hrefs = set()
+        for link in attachment_links:
+            href = link.get_attribute('href')
+            if href and href not in seen_hrefs and '.pdf' in href.lower():
+                unique_links.append(link)
+                seen_hrefs.add(href)
+
+        if not unique_links:
+            print("No unique PDF attachments found")
+            return downloaded_pdfs
+
+        print(f"Found {len(unique_links)} unique PDF attachment(s)")
+
+        # Create temp directory for downloads
+        temp_dir = tempfile.mkdtemp()
+        print(f"Created temp directory: {temp_dir}")
+
+        # Get cookies from selenium session for authenticated download
+        cookies = driver.get_cookies()
+        cookie_dict = {cookie['name']: cookie['value'] for cookie in cookies}
+
+        for i, link in enumerate(unique_links[:3]):  # Limit to first 3 PDFs
+            try:
+                href = link.get_attribute('href')
+                link_text = link.get_attribute('textContent').strip()
+                print(f"Processing PDF: {link_text} ({href})")
+
+                pdf_filename = os.path.join(temp_dir, f"attachment_{i}.pdf")
+
+                # Download PDF using urllib with cookies
+                opener = urllib.request.build_opener()
+                opener.addheaders = [
+                    ('Cookie', '; '.join([f"{k}={v}" for k, v in cookie_dict.items()])),
+                    ('User-Agent', 'Mozilla/5.0')
+                ]
+                urllib.request.install_opener(opener)
+
+                print(f"Downloading PDF to: {pdf_filename}")
+                urllib.request.urlretrieve(href, pdf_filename)
+
+                if os.path.exists(pdf_filename) and os.path.getsize(pdf_filename) > 0:
+                    print(f"✓ Successfully downloaded PDF ({os.path.getsize(pdf_filename)} bytes)")
+                    downloaded_pdfs.append(pdf_filename)
+                else:
+                    print(f"✗ Failed to download PDF or file is empty")
+
+            except Exception as e:
+                print(f"Error downloading PDF: {e}")
+                continue
+
+    except Exception as e:
+        print(f"Error finding PDF attachments: {e}")
+
+    return downloaded_pdfs
+
 def manual_debug_session():
     """
     Main function that sets up Selenium and pauses for manual interaction
@@ -338,6 +465,60 @@ def manual_debug_session():
                         print(f"Found account {account_number} via {match_type} in email text")
                     else:
                         print("No account numbers found in email text")
+
+                        # Try OCR on PDF attachments if available
+                        if OCR_AVAILABLE:
+                            print("Attempting to find and process PDF attachments with OCR...")
+                            pdf_files = find_and_download_pdf_attachments(driver)
+
+                            if pdf_files:
+                                print(f"Downloaded {len(pdf_files)} PDF(s) - processing with OCR...")
+
+                                # Process each PDF with OCR
+                                all_ocr_text = []
+                                for pdf_path in pdf_files:
+                                    ocr_text = extract_text_from_pdf_ocr(pdf_path)
+                                    if ocr_text:
+                                        all_ocr_text.append(ocr_text)
+
+                                # Combine all OCR text
+                                combined_ocr_text = '\n\n'.join(all_ocr_text)
+
+                                if combined_ocr_text:
+                                    print(f"Total OCR text extracted: {len(combined_ocr_text)} characters")
+
+                                    # Search for account numbers in OCR text
+                                    ocr_matches = find_account_in_text(combined_ocr_text)
+                                    if ocr_matches:
+                                        # Take the first match for account assignment
+                                        number, match_type, sap_record = ocr_matches[0]
+                                        account_number = sap_record[5] if sap_record[5] else number
+                                        account_name = sap_record[4] if sap_record[4] else ''
+
+                                        update_ticket_account(ticket_number, account_number, account_name)
+                                        print(f"✓ Found account {account_number} via {match_type} in PDF (OCR)")
+
+                                        # Also update text field with OCR results
+                                        combined_text = email_text + "\n\n[OCR from PDF]\n" + combined_ocr_text
+                                        update_ticket_text(ticket_number, combined_text)
+                                    else:
+                                        print("No account numbers found in OCR text")
+                                else:
+                                    print("No text extracted from PDFs")
+
+                                # Clean up temp files
+                                for pdf_path in pdf_files:
+                                    try:
+                                        temp_dir = os.path.dirname(pdf_path)
+                                        if os.path.exists(temp_dir):
+                                            shutil.rmtree(temp_dir)
+                                            print(f"Cleaned up temp directory: {temp_dir}")
+                                    except Exception as e:
+                                        print(f"Error cleaning up temp files: {e}")
+                            else:
+                                print("No PDF attachments found")
+                        else:
+                            print("OCR not available - install pytesseract and pdf2image for PDF support")
                 else:
                     print("No email text found - marked as 'nothing_to_extract'")
 

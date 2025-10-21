@@ -8,6 +8,7 @@ This system matches ServiceNow tickets to customer accounts using SAP data. The 
 - **Smart Extraction Tracking**: Prevents infinite retries of tickets with no extractable content
 - **GUI Interface**: User-friendly graphical interface for file selection and processing
 - **Enhanced Pattern Recognition**: Supports multiple account number formats including XX-XXXXXX
+- **OCR Support**: Automatically extracts account numbers from PDF attachments using OCR technology
 
 ## Quick Start
 
@@ -82,6 +83,43 @@ The system recognizes these account number formats:
 - Prevents infinite retries of empty tickets
 - Allows incremental processing of new batches
 - Preserves valuable extracted data
+
+## OCR Support for PDF Attachments
+
+### Overview
+The system now includes OCR (Optical Character Recognition) capability to extract account numbers from scanned PDFs or image-based documents attached to ServiceNow tickets.
+
+### How It Works:
+1. When no account number is found in email text
+2. System automatically searches for PDF attachments
+3. Downloads PDFs from ServiceNow (up to 3 per ticket)
+4. Converts PDF pages to images
+5. Runs OCR to extract text
+6. Searches OCR text for account numbers using same pattern matching
+7. Updates ticket with found account and saves OCR text
+
+### Requirements:
+- `pytesseract` - Python wrapper for Tesseract OCR
+- `pdf2image` - Convert PDF pages to images
+- `Pillow` - Image processing library
+- Tesseract OCR engine installed on system
+
+### Installation:
+```bash
+# Install Python packages
+pip install -r requirements.txt
+
+# Install Tesseract OCR engine
+# Windows: Download installer from https://github.com/UB-Mannheim/tesseract/wiki
+# Mac: brew install tesseract
+# Linux: sudo apt-get install tesseract-ocr
+```
+
+### Benefits:
+- Extracts account numbers from scanned invoices
+- Processes image-based PDF documents
+- Automatically triggered when email text yields no results
+- Saves OCR text to database for future reference
 
 ## Files Structure
 
@@ -168,6 +206,10 @@ CREATE TABLE sap (
 
 ### Dependencies:
 - selenium (web automation)
+- pandas (data processing)
+- pytesseract (OCR text extraction)
+- pdf2image (PDF to image conversion)
+- Pillow (image processing)
 - sqlite3 (database - included with Python)
 - csv (data export - included with Python)
 - tkinter (GUI - included with Python)
