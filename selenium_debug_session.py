@@ -16,6 +16,8 @@ import re
 import tempfile
 import shutil
 import urllib.request
+import email
+from email import policy
 
 # OCR imports
 try:
@@ -392,6 +394,141 @@ def find_and_download_pdf_attachments(driver):
 
     return downloaded_pdfs
 
+def extract_pdfs_from_eml(eml_path):
+    """
+    Parse .eml file and extract PDF attachments
+    Returns list of PDF file paths
+    """
+    pdf_files = []
+
+    try:
+        print(f"Parsing .eml file: {eml_path}")
+
+        # Read the .eml file
+        with open(eml_path, 'rb') as f:
+            msg = email.message_from_binary_file(f, policy=policy.default)
+
+        # Create temp directory for extracted PDFs
+        temp_dir = os.path.dirname(eml_path)
+
+        # Iterate through email parts to find attachments
+        attachment_count = 0
+        for part in msg.walk():
+            # Check if this is an attachment
+            content_disposition = part.get_content_disposition()
+
+            if content_disposition == 'attachment':
+                filename = part.get_filename()
+
+                if filename and filename.lower().endswith('.pdf'):
+                    print(f"Found PDF attachment: {filename}")
+
+                    # Get the attachment content
+                    attachment_data = part.get_payload(decode=True)
+
+                    if attachment_data:
+                        # Save PDF to temp directory
+                        pdf_path = os.path.join(temp_dir, f"eml_attachment_{attachment_count}_{filename}")
+
+                        with open(pdf_path, 'wb') as pdf_file:
+                            pdf_file.write(attachment_data)
+
+                        if os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 0:
+                            print(f"✓ Extracted PDF: {filename} ({os.path.getsize(pdf_path)} bytes)")
+                            pdf_files.append(pdf_path)
+                            attachment_count += 1
+                        else:
+                            print(f"✗ Failed to extract PDF or file is empty: {filename}")
+
+        if not pdf_files:
+            print("No PDF attachments found in .eml file")
+
+    except Exception as e:
+        print(f"Error parsing .eml file: {e}")
+
+    return pdf_files
+
+def find_and_download_eml_files(driver):
+    """
+    Find and download .eml files from the current ServiceNow email page
+    Returns list of downloaded .eml file paths
+    """
+    downloaded_emls = []
+
+    try:
+        # Look for .eml file links - ServiceNow email attachments
+        eml_links = []
+
+        # Pattern 1: Direct .eml links
+        eml_links.extend(driver.find_elements(By.XPATH, "//a[contains(@href, '.eml')]"))
+
+        # Pattern 2: Links with .eml text
+        eml_links.extend(driver.find_elements(By.XPATH, "//a[contains(text(), '.eml')]"))
+
+        # Pattern 3: ServiceNow sys_original links (email records)
+        eml_links.extend(driver.find_elements(By.XPATH, "//a[contains(@href, 'sys_original')]"))
+
+        if not eml_links:
+            print("No .eml files found on page")
+            return downloaded_emls
+
+        # Remove duplicates
+        unique_links = []
+        seen_hrefs = set()
+        for link in eml_links:
+            href = link.get_attribute('href')
+            if href and href not in seen_hrefs:
+                unique_links.append(link)
+                seen_hrefs.add(href)
+
+        if not unique_links:
+            print("No unique .eml files found")
+            return downloaded_emls
+
+        print(f"Found {len(unique_links)} potential .eml file(s)")
+
+        # Create temp directory for downloads
+        temp_dir = tempfile.mkdtemp()
+        print(f"Created temp directory for .eml files: {temp_dir}")
+
+        # Get cookies from selenium session for authenticated download
+        cookies = driver.get_cookies()
+        cookie_dict = {cookie['name']: cookie['value'] for cookie in cookies}
+
+        for i, link in enumerate(unique_links[:3]):  # Limit to first 3 .eml files
+            try:
+                href = link.get_attribute('href')
+                link_text = link.get_attribute('textContent').strip()
+                print(f"Processing .eml: {link_text} ({href})")
+
+                eml_filename = os.path.join(temp_dir, f"email_{i}.eml")
+
+                # Download .eml file using urllib with cookies
+                opener = urllib.request.build_opener()
+                opener.addheaders = [
+                    ('Cookie', '; '.join([f"{k}={v}" for k, v in cookie_dict.items()])),
+                    ('User-Agent', 'Mozilla/5.0')
+                ]
+                urllib.request.install_opener(opener)
+
+                print(f"Downloading .eml to: {eml_filename}")
+                urllib.request.urlretrieve(href, eml_filename)
+
+                if os.path.exists(eml_filename) and os.path.getsize(eml_filename) > 0:
+                    print(f"✓ Successfully downloaded .eml ({os.path.getsize(eml_filename)} bytes)")
+                    downloaded_emls.append(eml_filename)
+                else:
+                    print(f"✗ Failed to download .eml or file is empty")
+
+            except Exception as e:
+                print(f"Error downloading .eml: {e}")
+                continue
+
+    except Exception as e:
+        print(f"Error finding .eml files: {e}")
+
+    return downloaded_emls
+
 def manual_debug_session():
     """
     Main function that sets up Selenium and pauses for manual interaction
@@ -469,7 +606,21 @@ def manual_debug_session():
                         # Try OCR on PDF attachments if available
                         if OCR_AVAILABLE:
                             print("Attempting to find and process PDF attachments with OCR...")
-                            pdf_files = find_and_download_pdf_attachments(driver)
+
+                            # Strategy 1: Try to find and extract PDFs from .eml files
+                            pdf_files = []
+                            eml_files = find_and_download_eml_files(driver)
+
+                            if eml_files:
+                                print(f"Found {len(eml_files)} .eml file(s) - extracting PDFs...")
+                                for eml_path in eml_files:
+                                    extracted_pdfs = extract_pdfs_from_eml(eml_path)
+                                    pdf_files.extend(extracted_pdfs)
+
+                            # Strategy 2: If no .eml files or no PDFs in .eml, try direct PDF links
+                            if not pdf_files:
+                                print("No PDFs found in .eml files, trying direct PDF links...")
+                                pdf_files = find_and_download_pdf_attachments(driver)
 
                             if pdf_files:
                                 print(f"Downloaded {len(pdf_files)} PDF(s) - processing with OCR...")
@@ -507,10 +658,20 @@ def manual_debug_session():
                                     print("No text extracted from PDFs")
 
                                 # Clean up temp files
+                                temp_dirs_to_clean = set()
+
+                                # Collect all temp directories from PDFs
                                 for pdf_path in pdf_files:
+                                    temp_dirs_to_clean.add(os.path.dirname(pdf_path))
+
+                                # Collect all temp directories from .eml files
+                                for eml_path in eml_files:
+                                    temp_dirs_to_clean.add(os.path.dirname(eml_path))
+
+                                # Clean up all temp directories
+                                for temp_dir in temp_dirs_to_clean:
                                     try:
-                                        temp_dir = os.path.dirname(pdf_path)
-                                        if os.path.exists(temp_dir):
+                                        if os.path.exists(temp_dir) and '/tmp' in temp_dir:  # Safety check
                                             shutil.rmtree(temp_dir)
                                             print(f"Cleaned up temp directory: {temp_dir}")
                                     except Exception as e:
